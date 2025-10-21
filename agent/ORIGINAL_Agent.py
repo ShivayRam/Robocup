@@ -28,8 +28,8 @@ class Agent(Base_Agent):
         self.fat_proxy_cmd = "" if is_fat_proxy else None
         self.fat_proxy_walk = np.zeros(3) # filtered walk parameters for fat proxy
 
-        formation = GenerateBasicFormation()
-        self.init_pos = formation[unum] # initial formation
+    
+        self.init_pos = ([-14,0],[-8,-4],[-8,4],[0,2],[0,-2])[unum-1] # initial formation
 
 
     def beam(self, avoid_center_circle=False):
