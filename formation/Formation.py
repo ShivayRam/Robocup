@@ -1,30 +1,57 @@
 import numpy as np
 
+#this is da basic formation
 def GenerateBasicFormation():
 
+    #For general play, balanced with (2 def, 1 mid, 2 fwd)
 
-    formation = [
-        np.array([-13, 0]),    # Goalkeeper
-        np.array([-7, -2]),  # Left Defender
-        np.array([-0, 3]),   # Right Defender
-        np.array([7, 1]),    # Forward Left
-        np.array([12, 0])      # Forward Right
-    ]
+    return {
+        1: [-14, 0],     #GK
+        2: [-10, -4],    #RCB
+        3: [-10, 4],     #LCB
+        4: [-6, 0],      #CM
+        5: [-2, 0]       #CF
+    }
 
 
+#offensive formation
+def GenerateOffensiveFormation():
 
-    # formation = [
-    #     np.array([-13, 0]),    # Goalkeeper
-    #     np.array([-10, -2]),  # Left Defender
-    #     np.array([-11, 3]),   # Center Back Left
-    #     np.array([-8, 0]),    # Center Back Right
-    #     np.array([-3, 0]),   # Right Defender
-    #     np.array([0, 1]),    # Left Midfielder
-    #     np.array([2, 0]),    # Center Midfielder Left
-    #     np.array([3, 3]),     # Center Midfielder Right
-    #     np.array([8, 0]),     # Right Midfielder
-    #     np.array([9, 1]),    # Forward Left
-    #     np.array([12, 0])      # Forward Right
-    # ]
+    #offensive pressure, more players up front with (1 def, 2 mid, 2 fwd)
 
-    return formation
+    return {
+        1: [-14, 0],    #GK
+        2: [-12, -3],   #LCB
+        3: [-12, 3],    #RCB
+        4: [-8, -2],    #LM
+        5: [-8, 2]      #RM
+    }
+
+#Defensive formation
+def GenerateDefensiveFormation():
+
+    #defensive situatrions, sit deep with (3 def, 1 mid, 1 fwd)
+
+    return {
+        1: [-14, 0],    #GK
+        2: [-10, -4],   #RCB
+        3: [-10, 4],    #LCB
+        4: [-12, 0],    #CB
+        5: [-6, 0]      #CM
+
+    }
+
+#kickoff formation
+def GenerateKickoffFormation():
+
+    #fomration for kickoff situations
+
+    return {
+        1: [-14, 0],    #GK
+        2: [-10, -4],   #RCB
+        3: [-10, 4],    #LCB
+        4: [-6, 0],     #CM
+        5: [-2, 0]      #CF
+
+    }
+
