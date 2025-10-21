@@ -84,7 +84,7 @@ def GenerateCornerKickDefensiveFormation():
 
 #next gonna try create a dynamic formation
 #based on ball position and our teammates positions
-#def GenerateDynamicFormation(ball_position, is_offensive, play_mode=None):
+def GenerateDynamicFormation(ball_position, is_offensive, play_mode=None):
 
     #storing the basic formation in var
     base_form = GenerateBasicFormation()
@@ -213,7 +213,7 @@ def GetPlayerRole(player_number, formation_type="basic"):
 
 
 #validates the formation structure and ensures bots dont go off pitch
-#def ValidateFormation(formation):
+def ValidateFormation(formation):
 
     if not isinstance(formation, dict):
         return False
