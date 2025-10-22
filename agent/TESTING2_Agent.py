@@ -5,7 +5,8 @@ import numpy as np
 
 from strategy.Assignment import role_assignment 
 from strategy.Strategy import Strategy 
-from formation.Formation import GenerateBasicFormation, GenerateDynamicFormation
+
+from formation.Formation import GenerateBasicFormation, GenerateDynamicFormation, GetPlayerRole
 
 
 class Agent(Base_Agent):
@@ -14,7 +15,7 @@ class Agent(Base_Agent):
         
         # define robot type for 5v5
         # 0 = GK, 1 = DEF, 2 = MID, 3 = FWD
-        robot_type = (0, 1, 1, 2, 3)[unum-1]
+        robot_type = (0,1,1,2,3)[unum-1]
 
         # Initialize base agent
         super().__init__(host, agent_port, monitor_port, unum, robot_type, team_name, enable_log, enable_draw, True, wait_for_server, None)
@@ -26,13 +27,14 @@ class Agent(Base_Agent):
         self.fat_proxy_cmd = "" if is_fat_proxy else None
         self.fat_proxy_walk = np.zeros(3) # filtered walk parameters for fat proxy
 
-        # NEW: Updated initial formation using the basic formation
+        # FIXED: Use unum instead of unum-1 since formation uses keys 1-5
         formation = GenerateBasicFormation()
-        self.init_pos = formation[unum]  # Get position for this player number
-        
-        # Store formation types for different situations
+        self.init_pos = formation[unum] # initial formation
+
+        # Store formation state
         self.current_formation = "basic"
         self.formation_history = []
+
 
     def beam(self, avoid_center_circle=False):
         r = self.world.robot
@@ -51,6 +53,7 @@ class Agent(Base_Agent):
             else: # fat proxy behavior
                 self.fat_proxy_cmd += "(proxy dash 0 0 0)"
                 self.fat_proxy_walk = np.zeros(3) # reset fat proxy walk
+
 
     def move(self, target_2d=(0,0), orientation=None, is_orientation_absolute=True,
              avoid_obstacles=True, priority_unums=[], is_aggressive=False, timeout=3000):
@@ -71,6 +74,7 @@ class Agent(Base_Agent):
 
         self.behavior.execute("Walk", target_2d, True, orientation, is_orientation_absolute, distance_to_final_target)
 
+
     def kick(self, kick_direction=None, kick_distance=None, abort=False, enable_pass_command=False):
         '''
         Walk to ball and kick
@@ -88,7 +92,8 @@ class Agent(Base_Agent):
         else: # fat proxy behavior
             return self.fat_proxy_kick()
 
-    def kickTarget(self, strategyData, mypos_2d=(0,0), target_2d=(0,0), abort=False, enable_pass_command=False):
+
+    def kickTarget(self, strategyData, mypos_2d=(0,0),target_2d=(0,0), abort=False, enable_pass_command=False):
         '''
         Walk to ball and kick towards target
         '''
@@ -132,14 +137,17 @@ class Agent(Base_Agent):
             if strategyData.play_mode != self.world.M_BEFORE_KICKOFF:
                 self.select_skill(strategyData)
             else:
-                # During before kickoff, use basic formation
+                # During before kickoff, use basic formation positioning
                 formation = GenerateBasicFormation()
                 target_pos = formation[self.world.robot.unum]
-                self.move(target_pos, orientation=0)
+                orientation = M.vector_angle((-target_pos[0], -target_pos[1]))
+                self.move(target_pos, orientation=orientation)
 
-        # Broadcast and send to server
+
+        #--------------------------------------- 3. Broadcast
         self.radio.broadcast()
-        
+
+        #--------------------------------------- 4. Send to server
         if self.fat_proxy_cmd is None: # normal behavior
             self.scom.commit_and_send( strategyData.robot_model.get_command() )
         else: # fat proxy behavior
@@ -147,25 +155,23 @@ class Agent(Base_Agent):
             self.fat_proxy_cmd = ""
 
     def select_skill(self, strategyData):
-        # Decision making with enhanced formations
+        #--------------------------------------- 2. Decide action
         drawer = self.world.draw
         path_draw_options = self.path_manager.draw_options
 
-        # Import enhanced formation functions
-        from formation.Formation import GenerateDynamicFormation, GetPlayerRole
-        
-        # Determine game state for dynamic formation
+        #------------------------------------------------------
+        # Enhanced Formation Selection
         ball_pos = strategyData.ball_abs_pos[:2]
         is_offensive = ball_pos[0] > -5  # Ball in opponent half
         
-        # Generate appropriate formation
+        # Generate appropriate formation based on game state
         formation_positions = GenerateDynamicFormation(
             ball_pos, 
             is_offensive,
             strategyData.play_mode
         )
         
-        # Store current formation type for debugging
+        # Update formation type for debugging
         if is_offensive:
             self.current_formation = "offensive"
         else:
@@ -178,43 +184,53 @@ class Agent(Base_Agent):
 
         # Role Assignment
         if strategyData.active_player_unum == strategyData.robot_model.unum:
-            drawer.annotation((0, 10.5), "Role Assignment Phase", drawer.Color.yellow, "status")
+            drawer.annotation((0,10.5), "Role Assignment Phase", drawer.Color.yellow, "status")
         else:
             drawer.clear("status")
 
         point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
-        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+        
+        # FIXED: Safe access to formation position
+        if strategyData.player_unum in point_preferences:
+            strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+        else:
+            # Fallback to basic formation if assignment fails
+            basic_formation = GenerateBasicFormation()
+            strategyData.my_desired_position = basic_formation[strategyData.player_unum]
+            
         strategyData.my_desried_orientation = strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.my_desired_position)
 
-        # Draw formation positions and connections
+        # Draw formation positions
         for player_num, position in formation_positions.items():
             color = drawer.Color.blue if player_num == strategyData.player_unum else drawer.Color.green
             drawer.circle(position, 0.3, 2, color, f"formation_pos_{player_num}")
-            drawer.annotation((position[0], position[1] + 0.5), f"P{player_num}", color, f"formation_label_{player_num}")
 
         drawer.line(strategyData.mypos, strategyData.my_desired_position, 2, drawer.Color.blue, "target_line")
 
+        # If formation not ready, move to position
         if not strategyData.IsFormationReady(point_preferences):
             return self.move(strategyData.my_desired_position, orientation=strategyData.my_desried_orientation)
 
-        # Decision making based on game state and role
+        #------------------------------------------------------
+        # Enhanced Decision Making
+        target = (15,0) # Opponents Goal
+
         if strategyData.active_player_unum == strategyData.robot_model.unum:
-            # Active player decision making
-            drawer.annotation((0, 10.5), "Active Player - Decision Making", drawer.Color.yellow, "status")
+            drawer.annotation((0,10.5), "Active Player - Decision Making", drawer.Color.yellow, "status")
             
             # Enhanced passing strategy
             pass_reciever_unum = self._select_best_pass_target(strategyData)
-            if pass_reciever_unum is not None:
+            if pass_reciever_unum is not None and pass_reciever_unum-1 < len(strategyData.teammate_positions):
                 target = strategyData.teammate_positions[pass_reciever_unum-1]
-                drawer.line(strategyData.mypos, target, 2, drawer.Color.red, "pass_line")
-                drawer.annotation(target, f"Pass to P{pass_reciever_unum}", drawer.Color.red, "pass_target")
-                return self.kickTarget(strategyData, strategyData.mypos, target)
-            else:
-                # No good pass, shoot at goal
-                target = (15, 0)
-                drawer.line(strategyData.mypos, target, 3, drawer.Color.orange, "shot_line")
-                drawer.annotation((0, 9), "SHOOTING!", drawer.Color.orange, "shot_text")
-                return self.kickTarget(strategyData, strategyData.mypos, target)
+                if target is not None:  # Additional safety check
+                    drawer.line(strategyData.mypos, target, 2, drawer.Color.red, "pass_line")
+                    drawer.annotation(target, f"Pass to P{pass_reciever_unum}", drawer.Color.red, "pass_target")
+                    return self.kickTarget(strategyData, strategyData.mypos, target)
+            
+            # No good pass, shoot at goal or dribble
+            drawer.line(strategyData.mypos, (15,0), 3, drawer.Color.orange, "shot_line")
+            drawer.annotation((0, 9), "SHOOTING!", drawer.Color.orange, "shot_text")
+            return self.kickTarget(strategyData, strategyData.mypos, (15,0))
         else:
             # Supporting player behavior
             drawer.clear("pass_line")
@@ -226,11 +242,7 @@ class Agent(Base_Agent):
 
     def _select_best_pass_target(self, strategyData):
         """
-        Enhanced pass target selection considering:
-        - Teammate positions
-        - Opponent positions
-        - Field position
-        - Game situation
+        Enhanced pass target selection
         """
         best_target = None
         best_score = -1
@@ -239,6 +251,7 @@ class Agent(Base_Agent):
             if i == strategyData.player_unum:
                 continue
                 
+            # Safe index checking
             if i-1 < len(strategyData.teammate_positions) and strategyData.teammate_positions[i-1] is not None:
                 teammate_pos = strategyData.teammate_positions[i-1]
                 
@@ -250,50 +263,28 @@ class Agent(Base_Agent):
                     best_target = i
                     
         # Only pass if score is above threshold
-        if best_score > 0.5:
-            return best_target
-        else:
-            return None  # Indicates no good pass available
+        return best_target if best_score > 0.3 else None
 
     def _calculate_pass_score(self, strategyData, target_pos, target_unum):
         """
         Calculate how good a pass to this target would be
-        Higher score = better pass
         """
         score = 0.0
         
-        # Base score based on target's field position (prefer forward passes)
+        # Base score based on target's field position
         if target_pos[0] > strategyData.mypos[0]:  # Forward pass
             score += 0.3
-        else:  # Backward pass
-            score -= 0.2
             
-        # Distance factor (prefer medium distance passes)
+        # Distance factor
         distance = np.linalg.norm(np.array(strategyData.mypos) - np.array(target_pos))
         if 3.0 <= distance <= 8.0:
             score += 0.3
         elif distance < 3.0:
             score += 0.1
-        else:  # Too far
-            score -= 0.2
             
-        # Check if target is open (no opponents nearby)
-        min_opponent_dist = float('inf')
-        for opp_pos in strategyData.opponent_positions:
-            if opp_pos is not None:
-                dist = np.linalg.norm(np.array(target_pos) - np.array(opp_pos))
-                min_opponent_dist = min(min_opponent_dist, dist)
-                
-        if min_opponent_dist > 3.0:
-            score += 0.4  # Very open
-        elif min_opponent_dist > 2.0:
-            score += 0.2  # Somewhat open
-        else:
-            score -= 0.3  # Too crowded
-            
-        return max(0.0, score)  # Ensure non-negative score
+        return max(0.0, score)
 
-    # Fat proxy auxiliary methods (keep existing)
+    #--------------------------------------- Fat proxy auxiliary methods
     def fat_proxy_kick(self):
         w = self.world
         r = self.world.robot 

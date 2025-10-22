@@ -32,7 +32,6 @@ class Agent(Base_Agent):
         self.init_pos = ([-14,0],[-8,-4],[-8,4],[0,2],[0,-2])[unum-1] # initial formation
 
 
-
     def beam(self, avoid_center_circle=False):
         r = self.world.robot
         pos = self.init_pos[:] # copy position list 
