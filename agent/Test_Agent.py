@@ -198,10 +198,10 @@ class Agent(Base_Agent):
                     
                     # Target the Goal Corners (15, 1.05) and (15, -1.05)
                     if np.random.rand() > 0.5:
-                        shoot_target = np.array([15, 1]) # Top corner
+                        shoot_target = np.array([15, 1.05]) # Top corner
                         corner_text = "TOP CORNER"
                     else:
-                        shoot_target = np.array([15, -1]) # Bottom corner
+                        shoot_target = np.array([15, -1.05]) # Bottom corner
                         corner_text = "BOTTOM CORNER"
                     
                     # Shoot at the chosen target
