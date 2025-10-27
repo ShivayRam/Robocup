@@ -29,6 +29,8 @@ class Agent(Base_Agent):
 
         # 💡 MODIFICATION 1: Initial position now matches the Neutral Zone formation for consistency.
         # This is the formation used when the ball is at (0, 0)
+
+        #self.init_pos = GenerateDynamicFormation(Strategy(self.world))[unum-1]
         self.init_pos = (
             np.array([-12, 0]),     # GK 
             np.array([-5, -4]),     # D-L
@@ -36,7 +38,7 @@ class Agent(Base_Agent):
             np.array([0, -2]),      # M-L 
             np.array([0, 2])        # M-R
         )[unum-1]
-
+        
 
     def beam(self, avoid_center_circle=False):
         r = self.world.robot
@@ -160,82 +162,87 @@ class Agent(Base_Agent):
             self.fat_proxy_cmd = ""
 
     def select_skill(self, strategyData):
-            drawer = self.world.draw
-            
-            # 1. Team Strategy: Dynamic Formation and Role Assignment
-            
-            # Use the dynamic formation based on ball position
-            formation_positions = GenerateDynamicFormation(strategyData)
-            
-            # Use Gale-Shapley (Submission 1) to assign player to role
-            point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
-            
-            # Update player's desired position and orientation
-            strategyData.my_desired_position = point_preferences[strategyData.player_unum]
-            
-            # All non-active players should face the ball. Active player will face the goal.
-            if strategyData.active_player_unum != strategyData.robot_model.unum:
-                strategyData.my_desired_orientation = strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.ball_2d)
-            else:
-                # Active player faces the opponent's goal (15, 0)
-                strategyData.my_desired_orientation = strategyData.GetDirectionRelativeToMyPositionAndTarget(np.array([15, 0]))
+        drawer = self.world.draw
 
-            drawer.line(strategyData.mypos, strategyData.my_desired_position, 2, drawer.Color.blue, "target line")
-            
-            # 2. Primitive Actions Decision Tree (If-Else Structure)
-            
-            # --- A. Active Player Logic ---
-            if strategyData.active_player_unum == strategyData.robot_model.unum: 
-                drawer.annotation((0, 10.5), "Active Player: Ball Control", drawer.Color.yellow, "status")
-                
-                # Sub-Decision: Shoot, Pass, or Dribble?
-                
-                # 1. Check for immediate shot opportunity (e.g., within 8m of the goal)
-                OPPONENT_GOAL_CENTER = np.array([15, 0])
-                dist_to_goal = np.linalg.norm(np.array(strategyData.mypos) - OPPONENT_GOAL_CENTER)
-                
-                if dist_to_goal < 8.0:
-                    
-                    # Target the Goal Corners (15, 1.05) and (15, -1.05)
-                    if np.random.rand() > 0.5:
-                        shoot_target = np.array([15, 1.05]) # Top corner
-                        corner_text = "TOP CORNER"
-                    else:
-                        shoot_target = np.array([15, -1.05]) # Bottom corner
-                        corner_text = "BOTTOM CORNER"
-                    
-                    # Shoot at the chosen target
-                    drawer.annotation(strategyData.mypos, "SHOOT! (" + corner_text + ")", drawer.Color.red, "action_text")
-                    return self.kickTarget(strategyData, strategyData.mypos, shoot_target)
-                
-                # 2. Otherwise, dribble forward (i.e., kick to a spot in front of current pos)
+        # 1. Team Strategy: Dynamic Formation and Role Assignment
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+
+        if strategyData.active_player_unum != strategyData.robot_model.unum:
+            strategyData.my_desired_orientation = strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.ball_2d)
+        else:
+            strategyData.my_desired_orientation = strategyData.GetDirectionRelativeToMyPositionAndTarget(np.array([15, 0]))
+
+        drawer.line(strategyData.mypos, strategyData.my_desired_position, 2, drawer.Color.blue, "target line")
+
+        # 2. Decision tree: active or support
+        if strategyData.active_player_unum == strategyData.robot_model.unum:
+            drawer.annotation((0, 10.5), "Active Player: Ball Control", drawer.Color.yellow, "status")
+
+            OPPONENT_GOAL_CENTER = np.array([15, 0])
+            mypos = np.array(strategyData.mypos)
+            dist_to_goal = np.linalg.norm(mypos - OPPONENT_GOAL_CENTER)
+
+            ball_pos = np.array(strategyData.ball_2d)
+            ball_vel = np.array(getattr(strategyData, 'ball_vel_2d', [0.0, 0.0]))
+            # Count nearby defenders/opponents around ball
+            num_opponents_nearby = sum(
+                1 for opp in strategyData.opponent_positions if opp is not None
+                and np.linalg.norm(np.array(opp) - ball_pos) < 3.0
+            )
+
+            SHOOT_DISTANCE_THRESHOLD = 7.0
+            if dist_to_goal < SHOOT_DISTANCE_THRESHOLD and num_opponents_nearby <= 1:
+                # Choose shoot directly
+                if mypos[1] > 0:
+                    shoot_target = np.array([15.0, -0.8])
                 else:
-                    # Calculate a dribble target 2 meters in front of the current position, towards the goal (15, 0)
-                    dribble_vec = (OPPONENT_GOAL_CENTER - np.array(strategyData.mypos))
-                    dribble_vec = dribble_vec / np.linalg.norm(dribble_vec) * 2.0 # Normalize and extend by 2m
-                    dribble_target = np.array(strategyData.mypos) + dribble_vec
-                    
-                    drawer.annotation(strategyData.mypos, "DRIBBLE", drawer.Color.green, "action_text")
-                    return self.kickTarget(strategyData, strategyData.mypos, dribble_target)
+                    shoot_target = np.array([15.0,  0.8])
 
+                drawer.annotation(strategyData.mypos, "FAST SHOT!", drawer.Color.red, "action_text")
+                return self.kickTarget(strategyData, strategyData.mypos, shoot_target)
 
-            # --- B. Support Player Logic ---
-            else:
-                drawer.clear("status")
-                drawer.clear("action_text")
-                
-                # 1. If player is not at their role position, move there.
-                # Using IsFormationReady() logic for the individual player:
-                teammate_pos = strategyData.teammate_positions[strategyData.player_unum - 1]
-                desired_pos = strategyData.my_desired_position
-                
-                # Use a threshold for 'ready' position (e.g., within 0.5m)
-                if teammate_pos is None or np.linalg.norm(teammate_pos - desired_pos) > 0.5:
-                    # Move to position
-                    drawer.annotation(strategyData.mypos, "MOVING", drawer.Color.cyan, "action_text")
-                    return self.move(desired_pos, orientation=strategyData.my_desired_orientation)
+            ATTACK_ZONE_DISTANCE = 12.0
+            if dist_to_goal < ATTACK_ZONE_DISTANCE:
+                dribble_vec = (OPPONENT_GOAL_CENTER - mypos)
+                dribble_vec = dribble_vec / np.linalg.norm(dribble_vec) * 3.0
+                dribble_target = mypos + dribble_vec
+
+                drawer.annotation(strategyData.mypos, "QUICK DRIBBLE", drawer.Color.green, "action_text")
+                return self.kickTarget(strategyData, strategyData.mypos, dribble_target)
+
+            BALL_PREDICT_DT = 0.5
+            predicted_ball = ball_pos + ball_vel * BALL_PREDICT_DT
+
+            if dist_to_goal < 14.0 and num_opponents_nearby == 0:
+                if mypos[1] > 0:
+                    align_target = np.array([15.0, -0.5])
                 else:
-                    # Hold position and face the ball
-                    drawer.annotation(strategyData.mypos, "HOLD", drawer.Color.blue, "action_text")
-                    # Return move with distance_to_final_target=0 to stop walking animation and just face the ball
-                    return self.move(desired_pos, orientation=strategyData.my_desired_orientation)
+                    align_target = np.array([15.0,  0.5])
+
+                drawer.annotation(mypos, "ALIGN SHOT PATH", drawer.Color.blue, "action_text")
+                return self.kickTarget(strategyData, strategyData.mypos, align_target)
+
+            # Default: dribble toward goal
+            dribble_vec = (OPPONENT_GOAL_CENTER - mypos)
+            dribble_vec = dribble_vec / np.linalg.norm(dribble_vec) * 2.0
+            dribble_target = mypos + dribble_vec
+
+            drawer.annotation(strategyData.mypos, "DRIBBLE", drawer.Color.green, "action_text")
+            return self.kickTarget(strategyData, strategyData.mypos, dribble_target)
+
+        else:
+            # Support player logic
+            drawer.clear("status")
+            drawer.clear("action_text")
+
+            teammate_pos = strategyData.teammate_positions[strategyData.player_unum - 1]
+            desired_pos = strategyData.my_desired_position
+
+            if teammate_pos is None or np.linalg.norm(teammate_pos - desired_pos) > 0.5:
+                drawer.annotation(strategyData.mypos, "MOVING", drawer.Color.cyan, "action_text")
+                return self.move(desired_pos, orientation=strategyData.my_desired_orientation)
+            else:
+                drawer.annotation(strategyData.mypos, "HOLD", drawer.Color.blue, "action_text")
+                return self.move(desired_pos, orientation=strategyData.my_desired_orientation)
