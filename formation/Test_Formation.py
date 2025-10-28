@@ -14,23 +14,22 @@ def GenerateDynamicFormation(strategyData):
         ]
 
     # Neutral (Midfield)
-    elif -5 <= ball_x <= 8:
+    elif -5 <= ball_x <= 6:
         formation = [
             np.array([-12, 0]),
-            np.array([-5, -4]),
-            np.array([-5, 4]),
-            np.array([1, -2]),
-            np.array([1, 2])
+            np.array([-5, -2]),
+            np.array([-5, 2]),
+            np.array([1, -1]),
+            np.array([6, 1])
         ]
 
-    # Offensive (Ball in opponent’s half)
+    # Offensive (Ball in opponent's half) - MODIFIED: 3 attackers up front
     else:
-        # Compress attackers closer to goal for faster shooting
         formation = [
-            np.array([-10, 0]),     # GK (forward sweep)
-            np.array([4, -4]),      # D-L (advanced)
-            np.array([4, 4]),       # D-R (advanced)
-            np.array([12, -1.5]),   # F-L (in box)
-            np.array([12, 1.5])     # F-R (in box)
+            np.array([-10, 0]),     # GK (sweeper)
+            np.array([0, 0]),      # D-L (holding midfield)
+            np.array([10, 0]),       # D-R (holding midfield)
+            np.array([13, -1]),     # A-L (attacker left)
+            np.array([13, 1])       # A-R (attacker right)
         ]
     return formation

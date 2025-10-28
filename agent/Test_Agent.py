@@ -39,6 +39,10 @@ class Agent(Base_Agent):
             np.array([0, 2])        # M-R
         )[unum-1]
         
+        # Cache for faster decision making
+        self.last_decision_time = 0
+        self.cached_formation = None
+        self.cached_point_prefs = None
 
     def beam(self, avoid_center_circle=False):
         r = self.world.robot
@@ -164,85 +168,126 @@ class Agent(Base_Agent):
     def select_skill(self, strategyData):
         drawer = self.world.draw
 
-        # 1. Team Strategy: Dynamic Formation and Role Assignment
-        formation_positions = GenerateDynamicFormation(strategyData)
-        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        # 1. Team Strategy: Dynamic Formation and Role Assignment with caching
+        current_time = self.world.time_local_ms
+        formation_cache_valid = (current_time - self.last_decision_time < 200 and 
+                                self.cached_formation is not None and 
+                                self.cached_point_prefs is not None)
+        
+        if not formation_cache_valid:
+            formation_positions = GenerateDynamicFormation(strategyData)
+            point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+            self.cached_formation = formation_positions
+            self.cached_point_prefs = point_preferences
+            self.last_decision_time = current_time
+        else:
+            formation_positions = self.cached_formation
+            point_preferences = self.cached_point_prefs
+            
         strategyData.my_desired_position = point_preferences[strategyData.player_unum]
 
+        # FAST orientation calculation
         if strategyData.active_player_unum != strategyData.robot_model.unum:
-            strategyData.my_desired_orientation = strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.ball_2d)
+            target_vec = strategyData.ball_2d - strategyData.my_head_pos_2d
+            strategyData.my_desired_orientation = M.vector_angle(target_vec)
         else:
-            strategyData.my_desired_orientation = strategyData.GetDirectionRelativeToMyPositionAndTarget(np.array([15, 0]))
+            goal_vec = np.array([15, 0]) - strategyData.my_head_pos_2d
+            strategyData.my_desired_orientation = M.vector_angle(goal_vec)
 
         drawer.line(strategyData.mypos, strategyData.my_desired_position, 2, drawer.Color.blue, "target line")
 
-        # 2. Decision tree: active or support
+        # 2. FAST Decision tree: active or support
         if strategyData.active_player_unum == strategyData.robot_model.unum:
             drawer.annotation((0, 10.5), "Active Player: Ball Control", drawer.Color.yellow, "status")
 
             OPPONENT_GOAL_CENTER = np.array([15, 0])
             mypos = np.array(strategyData.mypos)
-            dist_to_goal = np.linalg.norm(mypos - OPPONENT_GOAL_CENTER)
-
+            
+            # FAST distance calculation using squared distance first
+            dx = mypos[0] - OPPONENT_GOAL_CENTER[0]
+            dy = mypos[1] - OPPONENT_GOAL_CENTER[1]
+            dist_to_goal_sq = dx*dx + dy*dy
+            
             ball_pos = np.array(strategyData.ball_2d)
-            ball_vel = np.array(getattr(strategyData, 'ball_vel_2d', [0.0, 0.0]))
-            # Count nearby defenders/opponents around ball
-            num_opponents_nearby = sum(
-                1 for opp in strategyData.opponent_positions if opp is not None
-                and np.linalg.norm(np.array(opp) - ball_pos) < 3.0
-            )
+            
+            # FAST opponent counting with pre-filter
+            num_opponents_nearby = 0
+            OPPONENT_THRESHOLD_SQ = 9.0  # 3.0^2
+            
+            for opp in strategyData.opponent_positions:
+                if opp is not None:
+                    opp_dx = opp[0] - ball_pos[0]
+                    opp_dy = opp[1] - ball_pos[1]
+                    if (opp_dx*opp_dx + opp_dy*opp_dy) < OPPONENT_THRESHOLD_SQ:
+                        num_opponents_nearby += 1
 
-            SHOOT_DISTANCE_THRESHOLD = 7.0
-            if dist_to_goal < SHOOT_DISTANCE_THRESHOLD and num_opponents_nearby <= 1:
-                # Choose shoot directly
-                if mypos[1] > 0:
-                    shoot_target = np.array([15.0, -0.8])
+            # ULTRA-FAST Shooting Decision Tree
+            URGENT_SHOOT_DISTANCE_SQ = 64.0  # 8.0^2
+            SHOOT_DISTANCE_SQ = 144.0        # 12.0^2
+            POSITIONING_DISTANCE_SQ = 196.0  # 14.0^2
+            
+            # URGENT: Very close to goal - shoot immediately
+            if dist_to_goal_sq < URGENT_SHOOT_DISTANCE_SQ:
+                # FAST target selection
+                if abs(mypos[1]) < 2.0:
+                    shoot_target = np.array([15.0, 0])
                 else:
-                    shoot_target = np.array([15.0,  0.8])
-
-                drawer.annotation(strategyData.mypos, "FAST SHOT!", drawer.Color.red, "action_text")
+                    shoot_target = np.array([15.0, -1.2 if mypos[1] > 0 else 1.2])
+                
+                drawer.annotation(strategyData.mypos, "URGENT SHOT!", drawer.Color.red, "action_text")
                 return self.kickTarget(strategyData, strategyData.mypos, shoot_target)
 
-            ATTACK_ZONE_DISTANCE = 12.0
-            if dist_to_goal < ATTACK_ZONE_DISTANCE:
-                dribble_vec = (OPPONENT_GOAL_CENTER - mypos)
-                dribble_vec = dribble_vec / np.linalg.norm(dribble_vec) * 3.0
-                dribble_target = mypos + dribble_vec
-
-                drawer.annotation(strategyData.mypos, "QUICK DRIBBLE", drawer.Color.green, "action_text")
-                return self.kickTarget(strategyData, strategyData.mypos, dribble_target)
-
-            BALL_PREDICT_DT = 0.5
-            predicted_ball = ball_pos + ball_vel * BALL_PREDICT_DT
-
-            if dist_to_goal < 14.0 and num_opponents_nearby == 0:
-                if mypos[1] > 0:
-                    align_target = np.array([15.0, -0.5])
+            # NORMAL: Good shooting position
+            elif dist_to_goal_sq < SHOOT_DISTANCE_SQ and num_opponents_nearby <= 2:
+                # FAST target calculation
+                if abs(mypos[1]) < 3.0:
+                    shoot_target = np.array([15.0, -0.5 if mypos[1] > 0 else 0.5])
                 else:
-                    align_target = np.array([15.0,  0.5])
+                    shoot_target = np.array([15.0, -1.0 if mypos[1] > 0 else 1.0])
+                
+                drawer.annotation(strategyData.mypos, "SHOOT!", drawer.Color.red, "action_text")
+                return self.kickTarget(strategyData, strategyData.mypos, shoot_target)
 
-                drawer.annotation(mypos, "ALIGN SHOT PATH", drawer.Color.blue, "action_text")
-                return self.kickTarget(strategyData, strategyData.mypos, align_target)
+            # POSITIONING: Get into better position
+            elif dist_to_goal_sq < POSITIONING_DISTANCE_SQ:
+                # FAST positioning calculation
+                if mypos[1] > 0:
+                    pos_target = np.array([min(mypos[0] + 2.0, 13.0), -1.0])
+                else:
+                    pos_target = np.array([min(mypos[0] + 2.0, 13.0), 1.0])
+                
+                drawer.annotation(strategyData.mypos, "POSITIONING", drawer.Color.blue, "action_text")
+                return self.kickTarget(strategyData, strategyData.mypos, pos_target)
 
-            # Default: dribble toward goal
-            dribble_vec = (OPPONENT_GOAL_CENTER - mypos)
-            dribble_vec = dribble_vec / np.linalg.norm(dribble_vec) * 2.0
-            dribble_target = mypos + dribble_vec
-
-            drawer.annotation(strategyData.mypos, "DRIBBLE", drawer.Color.green, "action_text")
-            return self.kickTarget(strategyData, strategyData.mypos, dribble_target)
+            # DEFAULT: Advance toward goal
+            else:
+                # FAST advance vector calculation
+                advance_vec = (OPPONENT_GOAL_CENTER - mypos)
+                advance_vec = advance_vec / np.sqrt(dist_to_goal_sq) * 3.0  # Use pre-computed distance
+                advance_target = mypos + advance_vec
+                
+                drawer.annotation(strategyData.mypos, "ADVANCE", drawer.Color.green, "action_text")
+                return self.kickTarget(strategyData, strategyData.mypos, advance_target)
 
         else:
-            # Support player logic
+            # FAST Support player logic
             drawer.clear("status")
             drawer.clear("action_text")
 
             teammate_pos = strategyData.teammate_positions[strategyData.player_unum - 1]
             desired_pos = strategyData.my_desired_position
 
-            if teammate_pos is None or np.linalg.norm(teammate_pos - desired_pos) > 0.5:
+            # FAST distance check using squared distance
+            if teammate_pos is None:
+                needs_move = True
+            else:
+                dx = teammate_pos[0] - desired_pos[0]
+                dy = teammate_pos[1] - desired_pos[1]
+                needs_move = (dx*dx + dy*dy) > 0.25  # 0.5^2
+
+            if needs_move:
                 drawer.annotation(strategyData.mypos, "MOVING", drawer.Color.cyan, "action_text")
                 return self.move(desired_pos, orientation=strategyData.my_desired_orientation)
             else:
-                drawer.annotation(strategyData.mypos, "HOLD", drawer.Color.blue, "action_text")
+                drawer.annotation(strategyData.mypos, "HOLD POSITION", drawer.Color.blue, "action_text")
                 return self.move(desired_pos, orientation=strategyData.my_desired_orientation)
