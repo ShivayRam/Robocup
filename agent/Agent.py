@@ -1,4 +1,3 @@
-
 from agent.Base_Agent import Base_Agent
 from math_ops.Math_Ops import Math_Ops as M
 import math
@@ -33,8 +32,8 @@ class Agent(Base_Agent):
             np.array([-12, 0]),     # GK 
             np.array([-5, -4]),     # D-L
             np.array([-5, 4]),      # D-R
-            np.array([0, -2]),      # M-L 
-            np.array([0, 2])        # M-R
+            np.array([0, -3]),      # M-L 
+            np.array([0, 3])        # M-R
         )[unum-1]
         
         # Cache for faster decision making
@@ -155,6 +154,18 @@ class Agent(Base_Agent):
                 self.handle_our_kickoff(strategyData)
             elif strategyData.play_mode == self.world.M_THEIR_KICKOFF:
                 self.handle_their_kickoff(strategyData)
+            elif strategyData.play_mode == self.world.M_OUR_FREE_KICK:
+                self.handle_our_freekick(strategyData)
+            elif strategyData.play_mode == self.world.M_THEIR_FREE_KICK:
+                self.handle_their_freekick(strategyData)
+            elif strategyData.play_mode == self.world.M_OUR_CORNER_KICK:
+                self.handle_our_corner(strategyData)
+            elif strategyData.play_mode == self.world.M_THEIR_CORNER_KICK:
+                self.handle_their_corner(strategyData)
+            elif strategyData.play_mode == self.world.M_OUR_GOAL_KICK:
+                self.handle_our_goalkick(strategyData)
+            elif strategyData.play_mode == self.world.M_THEIR_GOAL_KICK:
+                self.handle_their_goalkick(strategyData)
             else:
                 self.select_skill(strategyData)
 
@@ -207,6 +218,347 @@ class Agent(Base_Agent):
             
         return self.move(strategyData.my_desired_position,
                         orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.ball_2d))
+
+    def handle_our_freekick(self, strategyData):
+        """Special handling for our freekick - set piece attack"""
+        drawer = self.world.draw
+        drawer.annotation((0, 11), "OUR FREEKICK - ATTACK SETUP", drawer.Color.green, "game_mode")
+        
+        # Use formation-based positioning for freekick
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+        
+        ball_pos = np.array(strategyData.ball_2d)
+        
+        # Active player (closest to ball) takes the freekick
+        if strategyData.active_player_unum == strategyData.robot_model.unum:
+            drawer.annotation(strategyData.mypos, "FREEKICK TAKER", drawer.Color.yellow, "action_text")
+            
+            # Analyze freekick options based on position
+            OPPONENT_GOAL = np.array([15, 0])
+            dist_to_goal = np.linalg.norm(ball_pos - OPPONENT_GOAL)
+            
+            # Different strategies based on freekick position
+            if ball_pos[0] < -5:  # Defensive half - pass to nearest attacker
+                # Find closest attacker (players 4 or 5)
+                best_target = None
+                min_dist = float('inf')
+                for unum in [4, 5]:
+                    teammate_pos = strategyData.teammate_positions[unum-1]
+                    if teammate_pos is not None:
+                        dist = np.linalg.norm(ball_pos - teammate_pos)
+                        if dist < min_dist:
+                            min_dist = dist
+                            best_target = teammate_pos
+                
+                if best_target is not None:
+                    drawer.annotation(strategyData.mypos, "PASS TO ATTACKER", drawer.Color.cyan, "action_text")
+                    return self.kickTarget(strategyData, strategyData.mypos, best_target)
+                else:
+                    # Default: kick toward goal
+                    drawer.annotation(strategyData.mypos, "CLEAR UP FIELD", drawer.Color.cyan, "action_text")
+                    return self.kickTarget(strategyData, strategyData.mypos, OPPONENT_GOAL)
+                    
+            elif dist_to_goal < 15:  # Shooting range - direct shot
+                # Choose shooting target
+                if abs(ball_pos[1]) < 3:
+                    shoot_target = np.array([15, 0])  # Center shot
+                else:
+                    shoot_target = np.array([15, -1.5 if ball_pos[1] > 0 else 1.5])  # Far post
+                
+                drawer.annotation(strategyData.mypos, "DIRECT SHOT!", drawer.Color.red, "action_text")
+                return self.kickTarget(strategyData, strategyData.mypos, shoot_target)
+                
+            else:  # Midfield - strategic pass
+                # Pass to most advanced teammate
+                best_target = None
+                max_advance = -20
+                for i, teammate_pos in enumerate(strategyData.teammate_positions):
+                    if teammate_pos is not None and i+1 != strategyData.player_unum:
+                        if teammate_pos[0] > max_advance:
+                            max_advance = teammate_pos[0]
+                            best_target = teammate_pos
+                
+                if best_target is not None:
+                    drawer.annotation(strategyData.mypos, "STRATEGIC PASS", drawer.Color.cyan, "action_text")
+                    return self.kickTarget(strategyData, strategyData.mypos, best_target)
+                else:
+                    # Default: advance toward goal
+                    advance_target = ball_pos + (OPPONENT_GOAL - ball_pos) * 0.3
+                    drawer.annotation(strategyData.mypos, "ADVANCE BALL", drawer.Color.green, "action_text")
+                    return self.kickTarget(strategyData, strategyData.mypos, advance_target)
+                    
+        else:
+            # Support players - get into freekick formation positions
+            # Check if this player should make a run for a pass
+            if strategyData.player_unum in [4, 5]:  # Attackers
+                # Make runs to create space or receive pass
+                current_pos = np.array(strategyData.mypos)
+                desired_pos = strategyData.my_desired_position
+                
+                # If close to desired position, make an attacking run
+                if np.linalg.norm(current_pos - desired_pos) < 1.0:
+                    # Make run toward goal or open space
+                    run_target = desired_pos + np.array([3, 0])  # Run forward
+                    run_target[0] = min(run_target[0], 13)  # Don't run off field
+                    drawer.annotation(strategyData.mypos, "MAKING RUN", drawer.Color.magenta, "action_text")
+                    return self.move(run_target, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.ball_2d))
+            
+            drawer.annotation(strategyData.mypos, "HOLD POSITION", drawer.Color.blue, "action_text")
+            return self.move(strategyData.my_desired_position,
+                           orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.ball_2d))
+
+    def handle_their_freekick(self, strategyData):
+        """Special handling for their freekick - defensive set piece"""
+        drawer = self.world.draw
+        drawer.annotation((0, 11), "THEIR FREEKICK - DEFENSIVE SETUP", drawer.Color.orange, "game_mode")
+        
+        # Use formation-based positioning for freekick defense
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+        
+        ball_pos = np.array(strategyData.ball_2d)
+        
+        # Special defensive behaviors based on position
+        if strategyData.player_unum in [2, 3]:  # Defenders in wall
+            drawer.annotation(strategyData.mypos, "WALL DEFENDER", drawer.Color.red, "action_text")
+            
+            # Additional positioning for wall - face the ball
+            desired_orientation = strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos)
+            return self.move(strategyData.my_desired_position, orientation=desired_orientation)
+            
+        elif strategyData.player_unum == 1:  # Goalkeeper
+            drawer.annotation(strategyData.mypos, "GK - READY", drawer.Color.red, "action_text")
+            
+            # GK positioning for freekick - anticipate shot
+            ball_to_goal_vec = np.array([-14, 0]) - ball_pos
+            ball_to_goal_vec = ball_to_goal_vec / np.linalg.norm(ball_to_goal_vec)
+            
+            # Position slightly toward the side the ball is on
+            if ball_pos[1] > 0:
+                gk_pos = np.array([-14, -0.5])  # Right side of goal
+            else:
+                gk_pos = np.array([-14, 0.5])   # Left side of goal
+                
+            return self.move(gk_pos, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+            
+        else:  # Midfielders/Attackers - mark opponents or cover space
+            # Find closest opponent to mark
+            closest_opponent = None
+            min_dist = 5.0  # Only mark if within 5m
+            
+            for i, opp_pos in enumerate(strategyData.opponent_positions):
+                if opp_pos is not None:
+                    dist = np.linalg.norm(np.array(strategyData.mypos) - opp_pos)
+                    if dist < min_dist:
+                        min_dist = dist
+                        closest_opponent = opp_pos
+            
+            if closest_opponent is not None:
+                drawer.annotation(strategyData.mypos, "MARKING OPPONENT", drawer.Color.orange, "action_text")
+                # Position to intercept passes to this opponent
+                mark_pos = closest_opponent - (closest_opponent - ball_pos) * 0.3
+                return self.move(mark_pos, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+            else:
+                drawer.annotation(strategyData.mypos, "COVERING SPACE", drawer.Color.blue, "action_text")
+                return self.move(strategyData.my_desired_position,
+                               orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+
+    def handle_our_corner(self, strategyData):
+        """Special handling for our corner kick - attacking set piece"""
+        drawer = self.world.draw
+        drawer.annotation((0, 11), "OUR CORNER - ATTACKING", drawer.Color.green, "game_mode")
+        
+        # Use formation-based positioning for corner
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+        
+        ball_pos = np.array(strategyData.ball_2d)
+        ball_y = ball_pos[1]
+        
+        # Active player (closest to ball) takes the corner
+        if strategyData.active_player_unum == strategyData.robot_model.unum:
+            drawer.annotation(strategyData.mypos, "CORNER TAKER", drawer.Color.yellow, "action_text")
+            
+            # Corner kick strategy - cross into dangerous area
+            if ball_y > 0:  # Right side corner
+                # Cross to far post area
+                cross_target = np.array([-8, -3])
+                drawer.annotation(strategyData.mypos, "CROSS TO FAR POST", drawer.Color.cyan, "action_text")
+            else:  # Left side corner
+                # Cross to far post area
+                cross_target = np.array([-8, 3])
+                drawer.annotation(strategyData.mypos, "CROSS TO FAR POST", drawer.Color.cyan, "action_text")
+            
+            return self.kickTarget(strategyData, strategyData.mypos, cross_target)
+            
+        else:
+            # Support players in corner formation
+            if strategyData.player_unum == 1:  # Goalkeeper
+                drawer.annotation(strategyData.mypos, "GK - STAY READY", drawer.Color.blue, "action_text")
+            elif strategyData.player_unum in [2, 3]:  # Defenders
+                # Make late runs into box or stay for defensive cover
+                current_pos = np.array(strategyData.mypos)
+                if np.linalg.norm(current_pos - strategyData.my_desired_position) < 1.0:
+                    # Make attacking run into box
+                    run_target = strategyData.my_desired_position + np.array([2, 0])
+                    drawer.annotation(strategyData.mypos, "MAKING RUN", drawer.Color.magenta, "action_text")
+                    return self.move(run_target, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+                else:
+                    drawer.annotation(strategyData.mypos, "HOLD POSITION", drawer.Color.blue, "action_text")
+            else:  # Attackers
+                # Attackers make dynamic movements in box
+                drawer.annotation(strategyData.mypos, "ATTACKING POSITION", drawer.Color.red, "action_text")
+            
+            return self.move(strategyData.my_desired_position,
+                           orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+
+    def handle_their_corner(self, strategyData):
+        """Special handling for their corner kick - defensive set piece"""
+        drawer = self.world.draw
+        drawer.annotation((0, 11), "THEIR CORNER - DEFENDING", drawer.Color.orange, "game_mode")
+        
+        # Use formation-based positioning for corner defense
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+        
+        ball_pos = np.array(strategyData.ball_2d)
+        
+        # Special defensive corner behaviors
+        if strategyData.player_unum == 1:  # Goalkeeper
+            drawer.annotation(strategyData.mypos, "GK - CORNER DEFENSE", drawer.Color.red, "action_text")
+            
+            # GK positioning for corner - cover near post
+            if ball_pos[1] > 0:  # Right side corner
+                gk_pos = np.array([-14, 1.0])  # Cover near post (right)
+            else:  # Left side corner
+                gk_pos = np.array([-14, -1.0])  # Cover near post (left)
+                
+            return self.move(gk_pos, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+            
+        elif strategyData.player_unum in [2, 3]:  # Defenders - zonal marking
+            drawer.annotation(strategyData.mypos, "ZONAL MARKING", drawer.Color.orange, "action_text")
+            # Stay in zonal positions and clear any balls that come
+            return self.move(strategyData.my_desired_position, 
+                           orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+            
+        else:  # Midfielders - man marking or edge of box
+            # Find closest opponent to mark in dangerous area
+            closest_opponent = None
+            min_dist = 4.0
+            
+            for i, opp_pos in enumerate(strategyData.opponent_positions):
+                if opp_pos is not None:
+                    # Only mark opponents in dangerous areas (penalty box)
+                    if -12 <= opp_pos[0] <= -8 and -5 <= opp_pos[1] <= 5:
+                        dist = np.linalg.norm(np.array(strategyData.mypos) - opp_pos)
+                        if dist < min_dist:
+                            min_dist = dist
+                            closest_opponent = opp_pos
+            
+            if closest_opponent is not None:
+                drawer.annotation(strategyData.mypos, "MAN MARKING", drawer.Color.red, "action_text")
+                # Mark the opponent closely
+                mark_pos = closest_opponent + (closest_opponent - ball_pos) * 0.1
+                return self.move(mark_pos, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+            else:
+                drawer.annotation(strategyData.mypos, "COVER SPACE", drawer.Color.blue, "action_text")
+                return self.move(strategyData.my_desired_position,
+                               orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+
+    def handle_our_goalkick(self, strategyData):
+        """Special handling for our goal kick - build from back"""
+        drawer = self.world.draw
+        drawer.annotation((0, 11), "OUR GOAL KICK - BUILD UP", drawer.Color.green, "game_mode")
+        
+        # Use formation-based positioning for goal kick
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+        
+        ball_pos = np.array(strategyData.ball_2d)
+        
+        # Goalkeeper takes the goal kick
+        if strategyData.player_unum == 1:
+            drawer.annotation(strategyData.mypos, "GOAL KICK TAKER", drawer.Color.yellow, "action_text")
+            
+            # Find best passing option
+            best_target = None
+            min_opponent_pressure = float('inf')
+            
+            for i, teammate_pos in enumerate(strategyData.teammate_positions):
+                if teammate_pos is not None and i+1 != 1:  # Not self
+                    # Calculate opponent pressure on this teammate
+                    opponent_pressure = 0
+                    for opp_pos in strategyData.opponent_positions:
+                        if opp_pos is not None:
+                            dist_to_teammate = np.linalg.norm(opp_pos - teammate_pos)
+                            if dist_to_teammate < 3.0:
+                                opponent_pressure += (3.0 - dist_to_teammate)
+                    
+                    if opponent_pressure < min_opponent_pressure:
+                        min_opponent_pressure = opponent_pressure
+                        best_target = teammate_pos
+            
+            if best_target is not None and min_opponent_pressure < 2.0:
+                drawer.annotation(strategyData.mypos, "PASS TO TEAMMATE", drawer.Color.cyan, "action_text")
+                return self.kickTarget(strategyData, strategyData.mypos, best_target)
+            else:
+                # Clear long to safety
+                clear_target = np.array([0, 0])
+                drawer.annotation(strategyData.mypos, "CLEAR LONG", drawer.Color.cyan, "action_text")
+                return self.kickTarget(strategyData, strategyData.mypos, clear_target)
+                
+        else:
+            # Support players - provide passing options
+            drawer.annotation(strategyData.mypos, "PROVIDING OPTION", drawer.Color.blue, "action_text")
+            return self.move(strategyData.my_desired_position,
+                           orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+
+    def handle_their_goalkick(self, strategyData):
+        """Special handling for their goal kick - pressing"""
+        drawer = self.world.draw
+        drawer.annotation((0, 11), "THEIR GOAL KICK - PRESSING", drawer.Color.orange, "game_mode")
+        
+        # Use formation-based positioning for goal kick press
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+        
+        ball_pos = np.array(strategyData.ball_2d)
+        
+        # Pressing strategy - cut passing lanes and apply pressure
+        if strategyData.player_unum in [4, 5]:  # Attackers - high press
+            drawer.annotation(strategyData.mypos, "HIGH PRESS", drawer.Color.red, "action_text")
+            
+            # Press the opponents' defensive players
+            closest_opponent = None
+            min_dist = 6.0
+            
+            for i, opp_pos in enumerate(strategyData.opponent_positions):
+                if opp_pos is not None and opp_pos[0] > -10:  # Opponents in their half
+                    dist = np.linalg.norm(np.array(strategyData.mypos) - opp_pos)
+                    if dist < min_dist:
+                        min_dist = dist
+                        closest_opponent = opp_pos
+            
+            if closest_opponent is not None and min_dist < 5.0:
+                # Press this opponent
+                press_pos = closest_opponent + (closest_opponent - ball_pos) * 0.2
+                return self.move(press_pos, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+            else:
+                # Cut passing lanes
+                return self.move(strategyData.my_desired_position,
+                               orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+                               
+        else:  # Defenders and midfielders - zonal press
+            drawer.annotation(strategyData.mypos, "ZONAL PRESS", drawer.Color.orange, "action_text")
+            return self.move(strategyData.my_desired_position,
+                           orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
 
     def select_skill(self, strategyData):
         drawer = self.world.draw
