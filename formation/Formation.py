@@ -1,125 +1,227 @@
 import numpy as np
 
-def GenerateDynamicFormation(strategyData):
-    ball_x = strategyData.ball_2d[0]
-    play_mode = strategyData.play_mode
+"""def GenerateBasicFormation():
 
-    # Handle specific game modes first
-    if play_mode == 0:  # M_OUR_KICKOFF (KickOff_Left)
+
+    formation = [
+        np.array([-13, 0]),    # Goalkeeper
+        np.array([-7, -2]),  # Left Defender
+        np.array([-0, 3]),   # Right Defender
+        np.array([7, 1]),    # Forward Left
+        np.array([12, 0])      # Forward Right
+    ]
+
+
+
+    # formation = [
+    #     np.array([-13, 0]),    # Goalkeeper
+    #     np.array([-10, -2]),  # Left Defender
+    #     np.array([-11, 3]),   # Center Back Left
+    #     np.array([-8, 0]),    # Center Back Right
+    #     np.array([-3, 0]),   # Right Defender
+    #     np.array([0, 1]),    # Left Midfielder
+    #     np.array([2, 0]),    # Center Midfielder Left
+    #     np.array([3, 3]),     # Center Midfielder Right
+    #     np.array([8, 0]),     # Right Midfielder
+    #     np.array([9, 1]),    # Forward Left
+    #     np.array([12, 0])      # Forward Right
+    # ]
+
+    return formation
+"""
+
+
+#Gonna make a custom dynamic formation function
+def GenerateDynamicFormation(strategyData):
+
+    """
+        This function is going to change the formation of the bots
+        depending on the game mode but also where the ball is on the field
+        depending on its x coordinate
+    """
+
+    #assigned the game mode and ball x coordinate to vars
+    play_mode = strategyData.play_mode
+    ball_x = strategyData.ball_2d[0]
+
+    #start but checking game mode currently at play and adjust
+    
+    #our kickoff (Kickoff_Left)
+    if play_mode == 0:
         formation = [
+
             np.array([-14, 0]),     # GK
-            np.array([-10, -5]),    # D-L
-            np.array([-10, 5]),     # D-R
-            np.array([-2, -1]),     # M-L (forward for kickoff)
-            np.array([-2, 1])       # M-R (forward for kickoff)
+            np.array([-8, -3]),    #RCB
+            np.array([-8, 3]),     #LCB
+            np.array([-2, -1]),     #RCF
+            np.array([-2, 1])       #LCF
         ]
-    elif play_mode == 9:  # M_THEIR_KICKOFF (KickOff_Right)
+
+    #their kickoff (Kickoff_Right)
+    elif play_mode == 9:
+
         formation = [
+
             np.array([-14, 0]),     # GK
-            np.array([-10, -5]),    # D-L
-            np.array([-10, 5]),     # D-R
-            np.array([-2, -1]),     # A-L (forward attacker)
-            np.array([-2, 1])       # A-R (forward attacker)
+            np.array([-10, -3]),    #RCB
+            np.array([-10, 3]),     #LCB
+            np.array([-2, -1]),     #RCF
+            np.array([-2, 1])       #LCF
         ]
-    elif play_mode == 4:  # M_OUR_FREE_KICK (freekickLeft)
-        # Attacking freekick formation - players spread for options
+
+    #our Freekick (Freekick_Left)
+    elif play_mode == 4:
+
         formation = [
-            np.array([-14, 0]),     # GK
-            np.array([-8, -6]),     # D-L (wide option)
-            np.array([-8, 6]),      # D-R (wide option)  
-            np.array([ball_x + 2, ball_y - 3] if (ball_y := strategyData.ball_2d[1]) > 0 else [ball_x + 2, -3]),  # Near attacker
-            np.array([10, 0])       # Far attacker (in goal area)
+
+            np.array([-14, 0]),    #GK
+            np.array([-8, 0]),    #CB
+            np.array([-4, 0]),     #CDM
+            np.array([4, 0]),     #CM
+            np.array([10, 0])      #ST
         ]
-    elif play_mode == 13:  # M_THEIR_FREE_KICK (freekickRight)
-        # Defensive freekick formation - wall and coverage
+
+    #their Freekick (Freekick_Right)
+    elif play_mode == 13:
+
         formation = [
-            np.array([-14, 0]),     # GK
-            np.array([-9, -1.5]),   # D-L (wall left)
-            np.array([-9, 1.5]),    # D-R (wall right)
-            np.array([-6, -4]),     # M-L (cover left side)
-            np.array([-6, 4])       # M-R (cover right side)
+
+            np.array([-14, 0]),    #GK
+            np.array([-9, -1]),    #CB
+            np.array([-9, 1]),     #CB
+            np.array([-6, 0]),     #CDM
+            np.array([5, 0])      #ST
         ]
-    elif play_mode == 2:  # M_OUR_CORNER_KICK (cornerKickLeft)
-        # Attacking corner formation
+
+    #our Fcornerkick (CornerKick_Left)
+    elif play_mode == 2:
+
+        #check if left or right sided corner
         ball_y = strategyData.ball_2d[1]
-        if ball_y > 0:  # Right side corner
+
+        if ball_y > 0: #left sided corner
             formation = [
-                np.array([-14, 0]),     # GK
-                np.array([-12, -4]),    # D-L (back post defender)
-                np.array([-8, 6]),      # D-R (near post attacker)
-                np.array([-5, 0]),      # M-L (edge of box)
-                np.array([-10, 2])      # M-R (far post runner)
+
+                np.array([-14, 0]),    #GK
+                np.array([-5, 0]),    #CB
+                np.array([3, 0]),     #CM
+                np.array([12, 3]),     #LCF
+                np.array([13, 3])      #RCF
             ]
-        else:  # Left side corner
+        
+        else: #right sided corner
+
             formation = [
-                np.array([-14, 0]),     # GK
-                np.array([-12, 4]),     # D-L (back post defender)
-                np.array([-8, -6]),     # D-R (near post attacker)
-                np.array([-5, 0]),      # M-L (edge of box)
-                np.array([-10, -2])     # M-R (far post runner)
+
+                np.array([-14, 0]),    #GK
+                np.array([-5, 0]),    #CB
+                np.array([3, 0]),     #CM
+                np.array([12, -3]),     #LCF
+                np.array([13, -3])      #RCF
             ]
-    elif play_mode == 11:  # M_THEIR_CORNER_KICK (cornerKickRight)
-        # Defensive corner formation
+    
+    #their Cornerkick (CornerKick_Right)
+    elif play_mode == 11:
+
+        #check if left or right sided corner
         ball_y = strategyData.ball_2d[1]
-        if ball_y > 0:  # Right side corner (their left)
+
+        if ball_y > 0: #left sided corner
             formation = [
-                np.array([-14, 0]),     # GK
-                np.array([-12, -1.5]),  # D-L (near post marker)
-                np.array([-12, 1.5]),   # D-R (far post marker)
-                np.array([-10, -3]),    # M-L (zone defender)
-                np.array([-8, 0])       # M-R (edge of box clearance)
+
+                np.array([-14, 0]),     #GK
+                np.array([-11, 1]),     #CB
+                np.array([-11, 0]),     #CB
+                np.array([-5, 1]),      #CM
+                np.array([0, 0])        #ST
             ]
-        else:  # Left side corner (their right)
+        
+        else: #right sided corner
+
             formation = [
-                np.array([-14, 0]),     # GK
-                np.array([-12, 1.5]),   # D-L (near post marker)
-                np.array([-12, -1.5]),  # D-R (far post marker)
-                np.array([-10, 3]),     # M-L (zone defender)
-                np.array([-8, 0])       # M-R (edge of box clearance)
+
+                np.array([-14, 0]),     #GK
+                np.array([-11, 0]),     #CB
+                np.array([-11, -1]),    #CB
+                np.array([-5, -1]),     #CM
+                np.array([0, 0])        #ST
             ]
-    elif play_mode == 3:  # M_OUR_GOAL_KICK (goalKickLeft)
-        # Build from the back formation
+
+    #our goalkick (GoalKick_Left)
+    elif play_mode == 3:
+
+         formation = [
+
+                np.array([-14, 0]),     #GK
+                np.array([-12, -1]),    #CB
+                np.array([-12, 1]),     #CB
+                np.array([-8, 0]),      #CM
+                np.array([3, 0])        #ST
+            ]
+         
+    #their goalkick (GoalKick_Right)
+    elif play_mode == 12:
+
+         formation = [
+
+                np.array([-14, 0]),     #GK
+                np.array([-5, 0]),      #CB
+                np.array([0, 0]),       #CM
+                np.array([8, 0]),       #RCF
+                np.array([10, 2])       #LCF
+            ]
+         
+    
+    #The following are for the normal play mode (Play_On)
+
+
+    #deep in our half
+    elif play_mode == 20 and ball_x < -5:
+
         formation = [
-            np.array([-14, 0]),     # GK (takes goal kick)
-            np.array([-12, -3]),    # D-L (short left option)
-            np.array([-12, 3]),     # D-R (short right option)
-            np.array([-8, 0]),      # M-L (central midfield option)
-            np.array([-5, -2])      # M-R (advanced option)
+
+            np.array([-14, 0]),     #GK
+            np.array([-10, -2]),    #RCB
+            np.array([-10, 2]),     #LCB
+            np.array([-5, 0]),      #CM
+            np.array([-2, 0])       #ST 
         ]
-    elif play_mode == 12:  # M_THEIR_GOAL_KICK (goalKickRight)
-        # Pressing formation for their goal kick
+
+    #middle of the pitch
+    elif play_mode == 20 and -5 <= ball_x <= 5:
+
         formation = [
-            np.array([-14, 0]),     # GK
-            np.array([-10, -4]),    # D-L (high defensive line)
-            np.array([-10, 4]),     # D-R (high defensive line)
-            np.array([-5, -2]),     # M-L (pressing forward)
-            np.array([-5, 2])       # M-R (pressing forward)
+
+            np.array([-12, 0]),     #GK
+            np.array([-5, -2]),    #RCB
+            np.array([-5, 2]),     #LCB
+            np.array([0, 0]),      #CM
+            np.array([5, 0])       #ST 
         ]
-    # Defensive (Ball deep in our half)
-    elif ball_x < -5:
+
+    
+    #final third
+    elif play_mode == 20 and ball_x > 5:
+
         formation = [
-            np.array([-14, 0]),     # GK
-            np.array([-10, -5]),    # D-L
-            np.array([-10, 5]),     # D-R
-            np.array([-6, -2]),     # M-L
-            np.array([-6, 2])       # M-R
+
+            np.array([-10, 0]),     #GK
+            np.array([-2, 0]),      #CB
+            np.array([7, 1]),       #CDM
+            np.array([10, 0]),      #CAM
+            np.array([12, 0])       #ST 
         ]
-    # Neutral (Midfield)
-    elif -5 <= ball_x <= 3:
-        formation = [
-            np.array([-12, 0]),
-            np.array([-5, -4]),
-            np.array([-5, 4]),
-            np.array([1, -3]),
-            np.array([6, 0])
-        ]
-    # Offensive (Ball in opponent's half)
+    
     else:
+
+        #by standing formation
         formation = [
-            np.array([-10, 0]),     # GK (sweeper)
-            np.array([0, -4]),      # D-L (holding midfield)
-            np.array([9, 1]),       # D-R (holding midfield)
-            np.array([10, 0]),     # A-L (attacker left)
-            np.array([12, 0])       # A-R (attacker right)
+            np.array([-14, 0]),     #GK
+            np.array([-10, -1]),    #CB
+            np.array([-10, 1]),     #CB
+            np.array([-6, 0]),      #CM
+            np.array([-3, 0])       #ST
+
         ]
+
     return formation
