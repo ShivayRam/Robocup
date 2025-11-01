@@ -6,7 +6,7 @@ import numpy as np
 from strategy.Assignment import role_assignment 
 from strategy.Strategy import Strategy 
 
-from formation.Formation import GenerateBasicFormation
+from formation.Formation import GenerateDynamicFormation
 
 
 class Agent(Base_Agent):
@@ -188,10 +188,37 @@ class Agent(Base_Agent):
         elif self.state == 1 or (behavior.is_ready("Get_Up") and self.fat_proxy_cmd is None):
             self.state = 0 if behavior.execute("Get_Up") else 1
         else:
-            if strategyData.play_mode != self.world.M_BEFORE_KICKOFF:
-                self.select_skill(strategyData)
+            
+            if strategyData.play_mode == self.world.M_BEFORE_KICKOFF:
+                self.beam(True) # avoid center circle
+            
+            elif strategyData.play_mode == self.world.M_OUR_KICKOFF:
+                self.handle_our_kickoff(strategyData)
+            
+            elif strategyData.play_mode == self.world.M_THEIR_KICKOFF:
+                self.handle_their_kickoff(strategyData)
+
+            elif strategyData.play_mode == self.world.M_OUR_FREE_KICK:
+                self.handle_our_free_kick(strategyData)
+
+            elif strategyData.play_mode == self.world.M_THEIR_FREE_KICK:
+                self.handle_their_free_kick(strategyData)
+            
+            elif strategyData.play_mode == self.world.M_OUR_GOAL_KICK:
+                self.handle_our_goal_kick(strategyData)
+
+            elif strategyData.play_mode == self.world.M_THEIR_GOAL_KICK:
+                self.handle_their_goal_kick(strategyData)
+            
+            elif strategyData.play_mode == self.world.M_OUR_CORNER_KICK:
+                self.handle_our_corner_kick(strategyData)
+            
+            elif strategyData.play_mode == self.world.M_THEIR_CORNER_KICK:
+                self.handle_their_corner_kick(strategyData)
+
             else:
-                pass
+                self.select_skill(strategyData)
+                
 
 
         #--------------------------------------- 3. Broadcast
@@ -205,8 +232,156 @@ class Agent(Base_Agent):
             self.fat_proxy_cmd = ""
 
 
+#function to handle our kickoff(duh)
+    def handle_our_kickoff(self, strategyData):
 
+        drawer = self.world.draw
+        drawer.annotation((0, 11), "Our Kickoff - ATTACK MODE" , drawer.Color.green, "game_mode")
         
+
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+
+        if strategyData.active_player_unum == strategyData.robot_model.unum: # I am the active player 
+            drawer.annotation(strategyData.mypos, "KICKOFF TAKER", drawer.Color.yellow, "action_text")
+            return self.kickTarget(strategyData,strategyData.mypos,np.array([15,0])) # Kicks to Opponents Goal
+        
+        else:
+
+            return self.move(strategyData.my_desired_position, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.ball_2d))
+        
+
+#now the function to handle their kickoff
+    def handle_their_kickoff(self, strategyData):
+
+        drawer = self.world.draw
+        drawer.annotation((0, 11), "THEIR KICKOFF - DEFENSIVE", drawer.Color.orange, "game_mode")
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+
+        if strategyData.player_unum in [4, 5]:
+            drawer.annotation(strategyData.mypos, "HOLD DEFENSIVE LINE", drawer.Color.blue, "action_text")
+
+        else:
+            drawer.annotation(strategyData.mypos, "DEFENSIVE POSITON", drawer.Color.blue, "action_text")
+
+        return self.move(strategyData.my_desired_position, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.ball_2d))
+    
+
+#function to handle when its our freekick
+
+    def handle_our_free_kick(self, strategyData):
+
+        drawer = self.world.draw
+        drawer.annotation((0, 11), "OUR FREEKICK - ATTACK SETUP", drawer.Color.green, "game_mode")
+
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+
+        ball_pos = np.array(strategyData.ball_2d)
+
+        if strategyData.active_player_unum == strategyData.robot_model.unum:
+            drawer.annotation(strategyData.mypos, "FREEKICK TAKER", drawer.Color.yellow, "action_text")
+
+            #define opponent goal
+            OPPONENT_GOAL = np.array([15,0])
+            #euclidean dist to goal from ball position
+            dist_to_goal = np.linalg.norm(ball_pos - OPPONENT_GOAL)
+
+            if ball_pos[0] < -5:
+
+                best_target = None
+                min_dist = float('inf')
+
+                for unum in [4, 5]:
+
+                    teammate_pos = strategyData.teammate_positions[unum - 1]
+
+                    if teammate_pos is not None:
+                        
+                        dist = np.linalg.norm(ball_pos = teammate_pos)
+                        if dist < min_dist:
+
+                            min_dist = dist
+                            best_target = teammate_pos
+
+                if best_target is not None:
+
+                    drawer.annotation(strategyData.mypos, "PASS TO ATTACKER", drawer.Color.cyan, "action_text")
+                    return self.kickTarget(strategyData,strategyData.mypos,best_target)
+                
+                else:
+                    drawer.annotation(strategyData.mypos, "CLEAR UP FIELD", drawer.Color.cyan, "action_text")
+                    return self.kickTarget(strategyData,strategyData.mypos,OPPONENT_GOAL)
+                
+            
+            elif dist_to_goal < 15:
+            
+                if abs(ball_pos[1]) < 3:
+
+                    shoot_target = np.array([15, 0])
+            
+                else:
+
+                    #15, -1.5 part of the goal if the ball is on positive y side, else 1.5
+                    shoot_target = np.array([15, -1.5 if ball_pos[1] > 0 else 1.5])
+
+                drawer.annotation(strategyData.mypos, "DIRECT SHOT", drawer.Color.red, "action_text")
+                return self.kickTarget(strategyData,strategyData.mypos,shoot_target)
+        
+
+            else:
+
+                best_target = None
+                max_advance = -20
+
+                for i, teammate_pos in enumerate(strategyData.teammate_positions):
+
+                    if teammate_pos is not None and i+1 != strategyData.player_unum:
+
+                        if teammate_pos[0] > max_advance:
+
+                            max_advance = teammate_pos[0]
+                            best_target = teammate_pos
+            
+
+                if best_target is not None:
+
+                    drawer.annotation(strategyData.mypos, "STRATEGIC PASS", drawer.Color.cyan, "action_text")
+                    return self.kickTarget(strategyData,strategyData.mypos,best_target)
+            
+                else:
+
+                    advance_target = ball_pos + (OPPONENT_GOAL - ball_pos) * 0.3
+                    drawer.annotation(strategyData.mypos, "ADVANCE BALL", drawer.Color.green, "action_text")
+                    return self.kickTarget(strategyData,strategyData.mypos,advance_target)
+            
+
+        else:
+
+            if strategyData.player_unum in [4, 5]:
+
+                current_pos = np.array(strategyData.mypos)
+                desired_pos = strategyData.my_desired_position
+
+                if np.linalg.norm(current_pos - desired_pos) < 1:
+
+                    run_target = desired_pos + np.array([3, 0]) # move 3 meters forward
+                    run_target[0] = min(run_target[0], 13) # do not go beyond x=13
+
+                    drawer.annotation(strategyData.mypos, "MAKE RUN", drawer.Color.magenta, "action_text")
+                    return self.move(run_target, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.ball_2d))
+                
+            
+            drawer.annotation(strategyData.mypos, "HOLD POSITION", drawer.Color.blue, "action_text")
+
+            return self.move(strategyData.my_desired_position, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.ball_2d))
+        
+
+
 
 
 
@@ -223,7 +398,7 @@ class Agent(Base_Agent):
         else:
             drawer.clear("status")
 
-        formation_positions = GenerateBasicFormation()
+        formation_positions = GenerateDynamicFormation()
         point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
         strategyData.my_desired_position = point_preferences[strategyData.player_unum]
         strategyData.my_desried_orientation = strategyData.GetDirectionRelativeToMyPositionAndTarget(strategyData.my_desired_position)
