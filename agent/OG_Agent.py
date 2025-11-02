@@ -536,7 +536,98 @@ class Agent(Base_Agent):
             
             else:
                 return self.move(strategyData.my_desired_position, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+            
 
+#functions to handle our and their goal kicks
+
+    def handle_our_goalkick(self, strategyData):
+
+        drawer = self.world.draw
+
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+
+
+        ball_pos = np.array(strategyData.ball_2d)
+
+        if strategyData.player_unum == 1:
+
+            #drawer.annotation(strategyData.mypos, "GOALKEEPER - GOAL KICK", drawer.Color.yellow, "action_text")
+
+            best_target = None
+            min_opponent_pressure = float('inf')
+
+
+            for i, teammate_pos in enumerate(strategyData.teammate_positions):
+
+                if teammate_pos is not None and 1+1 != 1:
+
+                    opponent_pressure = 0
+
+                    for opp_pos in strategyData.opponent_positions:
+
+                        if opp_pos is not None:
+
+                            distance_to_teammate = np.linalg.norm(opp_pos - teammate_pos)
+
+                            if distance_to_teammate < 3:
+
+                                opponent_pressure += (3 - distance_to_teammate)
+
+                    if opponent_pressure < min_opponent_pressure:
+
+                        min_opponent_pressure = opponent_pressure
+                        best_target = teammate_pos
+
+            if best_target is not None and min_opponent_pressure < 2:
+                return self.kickTarget(strategyData,strategyData.mypos,best_target)
+            
+            else:
+                clear_target = np.array([0, 0])
+                return self.kickTarget(strategyData,strategyData.mypos,clear_target)
+            
+        
+        else:
+            return self.move(strategyData.my_desired_position, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+        
+
+    def handle_their_goalkick(self, strategyData):
+
+        drawer = self.world.draw
+
+        formation_positions = GenerateDynamicFormation(strategyData)
+        point_preferences = role_assignment(strategyData.teammate_positions, formation_positions)
+        strategyData.my_desired_position = point_preferences[strategyData.player_unum]
+
+
+        ball_pos = np.array(strategyData.ball_2d)
+
+        if strategyData.player_unum in [4, 5]:
+
+            #drawer.annotation(strategyData.mypos, "GOALKEEPER - DEFEND GOAL KICK", drawer.Color.red, "action_text")
+
+            closest_opponent = None
+            min_dist = 6
+
+            for i, opp_pos in enumerate(strategyData.opponent_positions):
+
+                if opp_pos is not None and opp_pos[0] > -10:
+
+                    dist = np.linalg.norm(np.array(strategyData.mypos) - opp_pos)
+
+                    if dist < min_dist:
+
+                        min_dist = dist
+                        closest_opponent = opp_pos
+
+            if closest_opponent is not None and min_dist < 5:
+                
+                press_pos = closest_opponent + (closest_opponent - ball_pos) * 0.2
+                return self.move(press_pos, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
+            
+        else:
+            return self.move(strategyData.my_desired_position, orientation=strategyData.GetDirectionRelativeToMyPositionAndTarget(ball_pos))
 
 
 
