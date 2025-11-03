@@ -181,27 +181,27 @@ def GenerateDynamicFormation(strategyData):
         formation = [
 
             np.array([-14, 0]),     #GK
-            np.array([-10, -2]),    #RCB
-            np.array([-10, 2]),     #LCB
-            np.array([-5, 0]),      #CM
-            np.array([-2, 0])       #ST 
+            np.array([-10, -1]),    #RCB
+            np.array([-10, 1]),     #LCB
+            np.array([-8, 0]),      #CM
+            np.array([-5, 0])       #ST 
         ]
 
     #middle of the pitch
-    elif play_mode == 20 and -5 <= ball_x <= 2:
+    elif play_mode == 20 and -5 <= ball_x < 2:
 
         formation = [
 
             np.array([-12, 0]),     #GK
-            np.array([-5, -2]),    #RCB
-            np.array([-5, 2]),     #LCB
+            np.array([-5, -1]),    #RCB
+            np.array([-5, 1]),     #LCB
             np.array([5, 0]),      #CM
             np.array([8, 0])       #ST 
         ]
 
     
     #final third
-    elif play_mode == 20 and ball_x > 3:
+    elif play_mode == 20 and ball_x >= 2:
 
         formation = [
 

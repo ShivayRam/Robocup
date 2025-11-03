@@ -28,11 +28,11 @@ class Agent(Base_Agent):
         self.fat_proxy_walk = np.zeros(3) # filtered walk parameters for fat proxy
 
         self.init_pos = (
-            np.array([-12, 0]),
-            np.array([-5, -4]),
-            np.array([-5, 4]),
-            np.array([0, -3]),
-            np.array([0, 3])
+            np.array([-14, 0]),     # GK
+            np.array([-8, -3]),    #RCB
+            np.array([-8, 3]),     #LCB
+            np.array([-2, -1]),     #RCF
+            np.array([-2, 1])       #LCF
         )[unum-1] # initial formation
 
         self.last_decision_time = 0
